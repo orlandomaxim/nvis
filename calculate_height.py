@@ -1,9 +1,8 @@
 # %%
 import os
-from glob import glob
+import sys
 import geopandas as gpd
 from multiprocessing import Pool
-import multiprocessing as mp
 
 from tqdm import tqdm
 
@@ -13,30 +12,36 @@ import multiprocessing as mp
 import rasterio
 from rasterio.windows import from_bounds
 from pyproj import CRS
-import sys
 import time
 
 from shapely import wkt
 
 import numpy as np
 
-nvis_polygon = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/nvis_polygon_7853.gpkg'
-nn_outputs = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/merged/NVIS_8L_fm_mape_r1_KI2020_merged.tif'
-delivery_tile = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/KI2020_delivery_tile.geojson'
-outputs_path = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/'
-output_name = 'NVIS_8L_fm_mape_r1_KI2020'
+#Imports specifically for QGIS api
+import sys
+import os
+from pathlib import Path
 
-# nvis_polygon = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/NVIS_WASouth_7850.gpkg'
-# nn_outputs = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/merged/WASouth_merged.tif'
-# delivery_tile = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/WASouth_delivery_tile.geojson'
-# outputs_path = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/'
-# output_name = 'NVIS_8L_fm_mape_r1_WASouth'
+# from rasterstats import zonal_stats
+
+# nvis_polygon = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/nvis_polygon_7853.gpkg'
+# nn_outputs = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/merged/NVIS_8L_fm_mape_r1_KI2020_merged.tif'
+# delivery_tile = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/KI2020_delivery_tile.geojson'
+# outputs_path = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2020/'
+# output_name = 'NVIS_8L_fm_mape_r1_KI2020'
 
 # nvis_polygon = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2025/nvis_polygon_7853.gpkg'
 # nn_outputs = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2025/merged/NVIS_8L_fm_mape_r1_KI2025_merged.tif'
 # delivery_tile = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2025/KI2025_delivery_tile.geojson'
 # outputs_path = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_KI2025/'
 # output_name = 'NVIS_8L_fm_mape_r1_KI2025'
+
+nvis_polygon = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/NVIS_WASouth_7850.gpkg'
+nn_outputs = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/merged/WASouth_merged.tif'
+delivery_tile = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/WASouth_delivery_tile.geojson'
+outputs_path = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_WASouth/'
+output_name = 'NVIS_8L_fm_mape_r1_WASouth'
 
 # nvis_polygon = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_Billabong/NVIS_Billabong_7850.gpkg'
 # nn_outputs = '/mnt/datapool1/datapool1/datasets/nvis_outputs/NVIS_8L_fm_mape_r1_Billabong/merged/NVIS_8L_fm_mape_r1_Billabong_merged.tif'
@@ -74,15 +79,17 @@ height_ranges = {1: '<0.5',
                  8: '>30'}
 
 def init_qgis():
-    #Imports specifically for QGIS api
-    import sys
-    import os
-    from pathlib import Path
+    import ctypes
     # Get conda environment path
     conda_prefix = Path(sys.executable).parents[1]
     # Set environment variables
     os.environ['QGIS_PREFIX_PATH'] = str(conda_prefix)
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    proj_path = os.path.join(conda_prefix, "share", "proj")
+    os.environ['PROJ_LIB'] = proj_path
+    os.environ["LD_LIBRARY_PATH"] = str(conda_prefix / "lib") + ":" + os.environ.get("LD_LIBRARY_PATH", "")
+    libproj_path = conda_prefix / "lib" / "libproj.so"
+    ctypes.CDLL(str(libproj_path))
     # Add QGIS Python paths
     qgis_python_path = conda_prefix / "share" / "qgis" / "python"
     plugins_path = conda_prefix / "share" / "qgis" / "python" / "plugins"
@@ -93,6 +100,18 @@ def init_qgis():
     from qgis.analysis import QgsNativeAlgorithms
 
     from qgis.analysis import QgsNativeAlgorithms
+
+    qgs = QgsApplication([], False)
+    qgs.setPrefixPath(str(conda_prefix), True)
+    qgs.initQgis()
+
+    import pyproj
+    print("pyproj version:", pyproj.__version__)
+    print("PROJ version (pyproj):", pyproj.proj_version_str)
+
+    from qgis.core import QgsCoordinateReferenceSystem
+    print("QGIS proj version:", QgsCoordinateReferenceSystem.projVersion())
+
     QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 
     from qgistools import QGISTools
@@ -116,8 +135,10 @@ def split_nn_outputs(nn_outputs, batch_grid_gdf, temp_path):
             bounds = row.geometry.buffer(20).bounds
             batch_id_bounds = grid_gdf.iloc[idx].geometry.bounds
             batch_id = str(int(batch_id_bounds[0])) + '_' + str(int(batch_id_bounds[1]))
-            if batch_id == '754000_6036000':
-                print(batch_id)
+            # if int(batch_id_bounds[0]) < 664000 or int(batch_id_bounds[0]) > 679000:
+            #     continue
+            # if int(batch_id_bounds[1]) < 6021000 or int(batch_id_bounds[1]) > 6036000:
+            #     continue
             out_name = os.path.join(temp_path, f"{batch_id}_nn_tile.tif")
             if os.path.exists(out_name):
                 continue
@@ -181,27 +202,29 @@ def create_batch_grid(nvis_polygon, grid_size, temp_path):
     return output_path
 
 # %%
-def process_batch(row_dict):
+def process_batch(row_dict, grid_size=10):
     tools = init_qgis()
     row_dict['geometry'] = wkt.loads(row_dict['geometry_wkt'])
     batch_grid = row_dict
     batch_grid_bounds = batch_grid['geometry'].bounds
+
+    cutoff = row_dict['cutoff']
     
     batch_id = str(int(batch_grid_bounds[0])) + '_' + str(int(batch_grid_bounds[1]))
-    extent = str(batch_grid_bounds[0] - 10) + ',' + str(batch_grid_bounds[2] + 10) + ',' + str(batch_grid_bounds[1] - 10) + ',' + str(batch_grid_bounds[3] + 10) + f' [{batch_grid_gdf.crs.srs}]'
+    extent = str(batch_grid_bounds[0] - grid_size) + ',' + str(batch_grid_bounds[2] + grid_size) + ',' + str(batch_grid_bounds[1] - grid_size) + ',' + str(batch_grid_bounds[3] + grid_size) + f' [{batch_grid_gdf.crs.srs}]'
     
     start_time = time.time()
     tools.creategrid(
         batch_grid_gdf.crs.srs,
         extent,
-        10,
+        grid_size,
         2,
-        os.path.join(temp_path, f'{batch_id}_batch_grid_10m.gpkg')
+        os.path.join(temp_path, f'{batch_id}_batch_grid_{grid_size}m.gpkg')
     )
     print(f"Batch grid created in {time.time() - start_time} seconds for batch {batch_id}")
 
     start_time = time.time()
-    batch_10m_grid_file = os.path.join(temp_path, f'{batch_id}_batch_grid_10m.gpkg')
+    batch_10m_grid_file = os.path.join(temp_path, f'{batch_id}_batch_grid_{grid_size}m.gpkg')
 
     nn_output_tile = os.path.join(temp_path, f'{batch_id}_nn_tile.tif')
 
@@ -209,10 +232,10 @@ def process_batch(row_dict):
         print(f"NN output tile {nn_output_tile} does not exist, skipping.")
         return None
     
-    merged_raster = os.path.join(temp_path, f'{batch_id}_merged.tif')
+    merged_raster = os.path.join(temp_path, f'{batch_id}_{grid_size}m_merged.tif')
     if not os.path.exists(merged_raster):
         for band, height_range in height_ranges.items():
-            out_zonals_path = os.path.join(temp_path, f'{batch_id}_zonal_stats_band{band}.gpkg')
+            out_zonals_path = os.path.join(temp_path, f'{batch_id}_zonal_stats_{grid_size}m_band{band}.gpkg')
             try:
                 tools.calculate_zonal_statitics(
                     'zs_',
@@ -226,12 +249,12 @@ def process_batch(row_dict):
                 print(f"Error processing zonals for height range {height_range}: {e}")
                 continue
 
-            clamped_zonals_path = os.path.join(temp_path, f'{batch_id}_zonal_stats_band{band}_clamped.gpkg')
+            clamped_zonals_path = os.path.join(temp_path, f'{batch_id}_zonal_stats_{grid_size}m_band{band}_clamped.gpkg')
             out_zonals_gdf = gpd.read_file(out_zonals_path)
             out_zonals_gdf['zs_mean'] = out_zonals_gdf['zs_mean'].clip(0, 1)
             out_zonals_gdf.to_file(clamped_zonals_path)
 
-            band_raster_path = os.path.join(temp_path, f'{batch_id}_band{band}_raster.tif')
+            band_raster_path = os.path.join(temp_path, f'{batch_id}_{grid_size}m_band{band}_raster.tif')
 
             band_rasterise_cmd = f"""
                 gdal_rasterize \
@@ -262,7 +285,7 @@ def process_batch(row_dict):
             -co TILED=YES \
             -co BIGTIFF=YES \
             -co PREDICTOR=1 \
-            {temp_path}/{batch_id}_band*_raster.tif
+            {temp_path}/{batch_id}_{grid_size}m_band*_raster.tif
         """
         print(merge_cmd)
         os.system(merge_cmd)
@@ -271,7 +294,7 @@ def process_batch(row_dict):
         merged_data = src.read().astype(np.float32)
         profile = src.profile.copy()
 
-    output_bands = np.zeros_like(merged_data, dtype=np.uint8)
+    output_bands = np.zeros_like(merged_data[0], dtype=np.uint8)
 
     band7_mask = merged_data[7] > cutoff  # band8 > cutoff
     band6_mask = (merged_data[6] > cutoff) & (~band7_mask)  # band7 > cutoff AND not band8
@@ -283,29 +306,29 @@ def process_batch(row_dict):
     band1_high = merged_data[1] > cutoff
     band0_high = merged_data[0] > cutoff
 
-    output_bands[7][band7_mask] = 1
-    output_bands[6][band6_mask] = 1
+    output_bands[band7_mask] = 7
+    output_bands[band6_mask] = 6
 
     band5_mask = band5_condition & band4_low
-    output_bands[5][band5_mask] = 1
+    output_bands[band5_mask] = 5
 
     band4_mask = band5_condition & (~band4_low) & band3_high
-    output_bands[4][band4_mask] = 1
-    
+    output_bands[band4_mask] = 4
+
     band3_mask = band5_condition & (~band4_low) & (~band3_high) & band2_high
-    output_bands[3][band3_mask] = 1
-    
+    output_bands[band3_mask] = 3
+
     band2_mask = band5_condition & (~band4_low) & (~band3_high) & (~band2_high) & band1_high
-    output_bands[2][band2_mask] = 1
+    output_bands[band2_mask] = 2
     
     band1_mask = band5_condition & (~band4_low) & (~band3_high) & (~band2_high) & (~band1_high) & band0_high
-    output_bands[1][band1_mask] = 1
+    output_bands[band1_mask] = 1
 
-    band0_nested_mask = band5_condition & (~band4_low) & (~band3_high) & (~band2_high) & (~band1_high) & (~band0_high)
-    output_bands[0][band0_nested_mask] = 1
-    
+    # band0_nested_mask = band5_condition & (~band4_low) & (~band3_high) & (~band2_high) & (~band1_high) & (~band0_high)
+    # output_bands[band0_nested_mask] = 0
+
     default_mask = (~band7_mask) & (~band6_mask) & (~band5_condition)
-    output_bands[0][default_mask] = 1
+    output_bands[default_mask] = 0
 
     profile.update({
         'dtype': 'uint8',
@@ -314,16 +337,17 @@ def process_batch(row_dict):
         'zstd_level': 9,
         'tiled': True,
         'bigtiff': True,
-        'predictor': 1
+        'predictor': 1,
+        'count': 1
     })
 
-    height_raster = os.path.join(temp_path, f'{batch_id}_height.tif')
+    height_raster = os.path.join(temp_path, f'{batch_id}_{cutoff}_{grid_size}m_height.tif')
 
     with rasterio.open(height_raster, 'w', **profile) as dst:
-        dst.write(output_bands)
+        dst.write(output_bands, 1)
 
 # %%
-def merge_outputs(temp_path, output_path, output_name):
+def merge_outputs(temp_path, output_path, output_name, grid_size):
     os.makedirs(os.path.join(output_path, 'merged'), exist_ok=True)
 
     merge_cmd = f"""
@@ -334,32 +358,18 @@ def merge_outputs(temp_path, output_path, output_name):
         -co TILED=YES \
         -co BIGTIFF=YES \
         -co PREDICTOR=1 \
-        {temp_path}/*_height.tif
+        {temp_path}/*_{cutoff}_{grid_size}m_height.tif
     """
     print(merge_cmd)
     os.system(merge_cmd)
-    pyramids_cmd = f"""
-        gdaladdo \
-        -r average \
-        --config COMPRESS_OVERVIEW ZSTD \
-        --config ZSTD_LEVEL_OVERVIEW 9 \
-        --config TILED_OVERVIEW YES \
-        --config PREDICTOR_OVERVIEW 1 \
-        --config BIGTIFF_OVERVIEW YES \
-        {output_path}/merged/{output_name}_height_merged.tif \
-        2 4 8 16 32 64 128 256
-    """
-    print(pyramids_cmd)
-    # os.system(pyramids_cmd)
 
 # %%
-def clip_outputs(temp_path, output_path, clipping_polygon, epsg=9473):
+def clip_outputs(temp_path, output_path, output_name, clipping_polygon, grid_size, epsg=9473):
     os.makedirs(os.path.join(output_path, 'merged_clipped'), exist_ok=True)
     clip_cmd = f"""
         gdalwarp \
         -cutline {clipping_polygon} \
         -crop_to_cutline \
-        -dstnodata -9999 \
         -co COMPRESS=ZSTD \
         -co ZSTD_LEVEL=9 \
         -co TILED=YES \
@@ -371,27 +381,36 @@ def clip_outputs(temp_path, output_path, clipping_polygon, epsg=9473):
     print(clip_cmd)
     os.system(clip_cmd)
 
-temp_name = 'temp'
+cutoff = 0.02
+# cutoff = 0.05
+# cutoff = 0.1
+
+grid_size = 5000
+pixel_size = 30
+# pixel_size = 10
+
+temp_name = f'temp_{pixel_size}m'
 temp_path = os.path.join(outputs_path, temp_name)
 os.makedirs(temp_path, exist_ok=True)
 
-cutoff = 0.1
-
-grid_size = 5000
 batch_grid_file = create_batch_grid(nvis_polygon, grid_size, temp_path)
 
-# split_nn_outputs(nn_outputs, batch_grid_file, temp_path)
+split_nn_outputs(nn_outputs, batch_grid_file, temp_path)
 
-# # Convert iterator to list for parallel processing
+# Convert iterator to list for parallel processing
 batch_grid_gdf = gpd.read_file(batch_grid_file)
 batch_list = list(batch_grid_gdf.itertuples())
 results = []
-with Pool(mp.cpu_count()) as p:
-# with Pool(1) as p:
+# with Pool(mp.cpu_count()) as p:
+with Pool(1) as p:
     with tqdm(total=len(batch_list), desc='batch_list', colour='blue', dynamic_ncols=True) as pbar_chips:
         for batch in batch_list:
             batch_grid_bounds = batch.geometry.bounds
             batch_id = str(int(batch_grid_bounds[0])) + '_' + str(int(batch_grid_bounds[1]))
+            # if int(batch_grid_bounds[0]) < 664000 or int(batch_grid_bounds[0]) > 679000:
+            #     continue
+            # if int(batch_grid_bounds[1]) < 6021000 or int(batch_grid_bounds[1]) > 6036000:
+            #     continue
             # if batch_id != '654000_6041000':
             #     pbar_chips.update(1)
             #     continue
@@ -399,7 +418,8 @@ with Pool(mp.cpu_count()) as p:
             row_dict = batch._asdict() if hasattr(batch, '_asdict') else dict(batch)
             row_dict['geometry_wkt'] = row_dict['geometry'].wkt
             del row_dict['geometry']
-            result = p.apply_async(process_batch, args=(row_dict,), callback=lambda _: pbar_chips.update(1))
+            row_dict['cutoff'] = cutoff
+            result = p.apply_async(process_batch, args=(row_dict,pixel_size,), callback=lambda _: pbar_chips.update(1))
             results.append(result)
             # break
         for result in results:
@@ -415,7 +435,7 @@ with Pool(mp.cpu_count()) as p:
 
 
 # %%
-merge_outputs(temp_path, outputs_path, output_name)
+merge_outputs(temp_path, outputs_path, output_name + f'_{pixel_size}m_{cutoff}',pixel_size)
 
 # %%
-clip_outputs(temp_path, outputs_path, delivery_tile)
+clip_outputs(temp_path, outputs_path, output_name + f'_{pixel_size}m_{cutoff}', delivery_tile, pixel_size)

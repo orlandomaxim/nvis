@@ -11,10 +11,10 @@ from xml.dom.minidom import parseString
 import re
 
 # %%
-# delivery_name = 'Kangaroo_Island2020'
+delivery_name = 'Kangaroo_Island2020'
 # # delivery_name = 'KangarooIsland_AdditionalScene'
-# outputs = 'NVIS_8L_fm_mape_r1_KI2020'
-# id = 'KI2020'
+outputs = 'NVIS_8L_fm_mape_r1_KI2020'
+id = 'KI2020'
 
 # delivery_name = 'KangarooIsland_2025'
 # outputs = 'NVIS_8L_fm_mape_r1_KI2025'
@@ -32,9 +32,9 @@ import re
 # outputs = 'NVIS_8L_fm_mape_r1_MulgaLands'
 # id = 'MulgaLands'
 
-delivery_name = 'Tenterfield'
-outputs = 'NVIS_8L_fm_mape_r1_Tenterfield'
-id = 'Tenterfield'
+# delivery_name = 'Tenterfield'
+# outputs = 'NVIS_8L_fm_mape_r1_Tenterfield'
+# id = 'Tenterfield'
 
 nn_outputs_path = f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/raw'
 polygon_path = f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/clipping_polygons'
@@ -42,10 +42,8 @@ output_path = f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/clipped
 merged_path = f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/merged'
 processing_summary = glob(f'/mnt/datapool2/Archive/EO_IMAGERY/raw/aoi/{delivery_name}/**/01_Raw/processing_summary.csv', recursive=True)[0]
 
-polygons = glob(f'/mnt/datapool1/datapool1/datasets/nn_datasets/polygons/{id}/*.geojson')
-nn_datasets = glob('/mnt/datapool1/datapool1/datasets/nn_datasets/NVIS/**/*.hdf5', recursive=True)
-merged_file = glob(os.path.join(merged_path, '*_all_merged_clipped.tif'))[0]
-print(merged_file)
+# polygons = glob(f'/mnt/datapool1/datapool1/datasets/nn_datasets/polygons/{id}/*.geojson')
+# nn_datasets = glob('/mnt/datapool1/datapool1/datasets/nn_datasets/NVIS/**/*.hdf5', recursive=True)
 
 def get_geospatial_metadata(merged_tif):
     metadata = {}
@@ -109,7 +107,79 @@ def get_geospatial_metadata(merged_tif):
             }
             metadata['bands'].append(band_info)
 
-        metadata['units'] = 'cover'
+        metadata['units'] = 'na'
+
+        # Additional technical metadata
+        metadata['tiled'] = src.is_tiled
+        if src.is_tiled:
+            metadata['block_size'] = src.block_shapes[0]  # (height, width) of blocks
+        
+        # Get compression info from profile if available
+        try:
+            metadata['compression'] = src.compression.name if src.compression else None
+        except:
+            metadata['compression'] = None
+
+    return metadata
+
+def get_height_geospatial_metadata(merged_tif):
+    metadata = {}
+
+    with rasterio.open(merged_tif) as src:
+        metadata['driver'] = src.driver
+        metadata['count'] = src.count
+        metadata['width'] = src.width
+        metadata['height'] = src.height
+        metadata['dtype'] = src.dtypes[0]
+        metadata['nodata'] = src.nodata
+
+        metadata['crs'] = src.crs.to_string()
+
+        metadata['bounds'] = {
+            'left': src.bounds.left,
+            'bottom': src.bounds.bottom,
+            'right': src.bounds.right,
+            'top': src.bounds.top
+        }
+
+        metadata['resolution'] = {
+            'x': abs(src.res[0]),
+            'y': abs(src.res[1])
+        }
+
+        metadata['transform'] = list(src.transform)
+
+        width_meters = (src.bounds.right - src.bounds.left)
+        height_meters = (src.bounds.top - src.bounds.bottom)
+        metadata['spatial_extent'] = {
+            'width_meters': width_meters,
+            'height_meters': height_meters,
+            'area_square_meters': width_meters * height_meters
+        }
+
+        metadata['bands'] = []
+        for band_num in range(1, src.count + 1):
+            band_data = src.read(band_num, masked=True)
+            
+            # Calculate statistics, ignoring nodata values
+            band_info = {
+                'band_number': band_num,
+                'height_range': {
+                    0: '0m',
+                    1: 'below_0.5m', 
+                    2: '0.5m-1m',
+                    3: '1m-2m',
+                    4: '2m-10m',
+                    5: '3m-10m',
+                    6: '10m-30m',
+                    7: 'above_30m'
+                },
+                'dtype': str(band_data.dtype),
+                'total_pixels': int(band_data.size)
+            }
+            metadata['bands'].append(band_info)
+
+        metadata['units'] = 'na'
 
         # Additional technical metadata
         metadata['tiled'] = src.is_tiled
@@ -207,25 +277,59 @@ def get_als_metadata(outputs, polygons):
     # print(als_areas[outputs])
     return als_metadata
 
-als_metadata_dict = get_als_metadata(outputs, polygons)
-print(als_metadata_dict)
+# merged_file = glob(os.path.join(merged_path, '*_all_merged_clipped.tif'))[0]
+# print(merged_file)
 
-geospatial_metadata_dict = get_geospatial_metadata(merged_file)
-print(geospatial_metadata_dict)
+# als_metadata_dict = get_als_metadata(outputs, polygons)
+# print(als_metadata_dict)
 
-clipping_polygons = glob(polygon_path + '/*.geojson')
-clipping_polygon_names = [os.path.splitext(os.path.basename(f))[0].replace(f'{delivery_name}_', '').replace('KangarooIsland_AdditionalScene_', '') for f in clipping_polygons]
-imagery_metadata_dict = {}
-imagery_metadata_dict['mosaic_tiles'] = clipping_polygon_names
-print(imagery_metadata_dict)
+# geospatial_metadata_dict = get_geospatial_metadata(merged_file)
+# print(geospatial_metadata_dict)
 
-metadata_dict = {
-    'geospatial_metadata': geospatial_metadata_dict,
-    'als_metadata': als_metadata_dict,
-    'imagery_metadata': imagery_metadata_dict
-}
-xml_bytes = dicttoxml(metadata_dict, custom_root='MetaData', attr_type=False)
-xml_string = parseString(xml_bytes).toprettyxml()
-print(xml_string)
-with open(f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/{id}_metadata.xml', 'w') as f:
-    f.write(xml_string)
+# clipping_polygons = glob(polygon_path + '/*.geojson')
+# clipping_polygon_names = [os.path.splitext(os.path.basename(f))[0].replace(f'{delivery_name}_', '').replace('KangarooIsland_AdditionalScene_', '') for f in clipping_polygons]
+# imagery_metadata_dict = {}
+# imagery_metadata_dict['mosaic_tiles'] = clipping_polygon_names
+# print(imagery_metadata_dict)
+
+# metadata_dict = {
+#     'geospatial_metadata': geospatial_metadata_dict,
+#     'als_metadata': als_metadata_dict,
+#     'imagery_metadata': imagery_metadata_dict
+# }
+# xml_bytes = dicttoxml(metadata_dict, custom_root='MetaData', attr_type=False)
+# xml_string = parseString(xml_bytes).toprettyxml()
+# print(xml_string)
+# with open(f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/{id}_metadata.xml', 'w') as f:
+#     f.write(xml_string)
+
+# merged_files = glob(os.path.join(merged_path, '*_height_merged_clipped.tif'))
+merged_files = glob(os.path.join(merged_path, '*_10m_height_sample_merged.tif'))
+print(merged_files)
+
+# als_metadata_dict = get_als_metadata(outputs, polygons)
+# print(als_metadata_dict)
+
+for merged_file in merged_files:
+    geospatial_metadata_dict = get_height_geospatial_metadata(merged_file)
+    print(geospatial_metadata_dict)
+    # cover_cutoff = os.path.basename(merged_file).replace(outputs + '_', '').replace('_height_merged_clipped.tif', '')
+    cover_cutoff = os.path.basename(merged_file).replace(outputs + '_', '').replace('_10m_height_sample_merged.tif', '')
+
+    clipping_polygons = glob(polygon_path + '/*.geojson')
+    clipping_polygon_names = [os.path.splitext(os.path.basename(f))[0].replace(f'{delivery_name}_', '').replace('KangarooIsland_AdditionalScene_', '') for f in clipping_polygons]
+    # imagery_metadata_dict = {}
+    # imagery_metadata_dict['mosaic_tiles'] = clipping_polygon_names
+    # print(imagery_metadata_dict)
+
+    metadata_dict = {
+        'cover_cutoff': cover_cutoff,
+        'geospatial_metadata': geospatial_metadata_dict,
+        # 'als_metadata': als_metadata_dict,
+        # 'imagery_metadata': imagery_metadata_dict
+    }
+    xml_bytes = dicttoxml(metadata_dict, custom_root='MetaData', attr_type=False)
+    xml_string = parseString(xml_bytes).toprettyxml()
+    print(xml_string)
+    with open(f'/mnt/datapool1/datapool1/datasets/nvis_outputs/{outputs}/{os.path.splitext(os.path.basename(merged_file))[0]}_metadata.xml', 'w') as f:
+        f.write(xml_string)
